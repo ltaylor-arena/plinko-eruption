@@ -8,7 +8,15 @@ with sync_playwright() as p:
     page.on('pageerror',lambda e:errors.append(str(e)))
     page.goto('http://127.0.0.1:8000/eruption/',wait_until='networkidle')
     page.locator('#sound').uncheck()
-    page.wait_for_function('portalTextures.length===2 && explosionFrames.length===6 && trafficCars.every(i=>i.complete&&i.naturalWidth)')
+    page.wait_for_function('explosionFrames.length===6 && trafficCars.every(i=>i.complete&&i.naturalWidth)')
+    assert page.locator('#warps, #force-warp').count()==0
+    assert page.evaluate("typeof openWarp==='undefined' && !document.querySelector('script[src*=\"warp-effects\"]')")
+    page.evaluate("""() => {
+      const ys=[],original=ctx.translate;
+      ctx.translate=function(x,y){if(y===STREET||y===STREET+5||y===STREET+17)ys.push(y);return original.call(this,x,y);};
+      try{pixelStreet();}finally{ctx.translate=original;}
+      if(ys.length!==cars.length+people.filter(p=>!p.hidden).length||ys.some((y,i)=>i&&y<ys[i-1]))throw Error('Traffic painted in wrong depth order');
+    }""")
     page.evaluate("""() => {
       fireEngineCooldown=Infinity;
       Object.assign(people[0],{x:450,hidden:false,burning:false,fleeing:false});
@@ -66,10 +74,9 @@ with sync_playwright() as p:
     }""")
     page.locator('#rules-open').click()
     page.locator('.demo summary').click()
-    page.locator('#force-warp').click()
     page.locator('#rules-close').click()
     page.wait_for_timeout(800)
-    page.screenshot(path=str(ROOT/'artifacts/eruption-warp-city.png'),full_page=True)
+    page.screenshot(path=str(ROOT/'artifacts/eruption-city.png'),full_page=True)
     page.evaluate('''() => {
       const b=buildings[0];impact({slot:0,payout:0,stake:10,multiplier:0});
       if(!b.dead||b.blocks.some(v=>v.alive))throw Error('Collapse incomplete');
@@ -144,7 +151,7 @@ with sync_playwright() as p:
         PanicMath.randomInt=()=>0;PanicMath.plinko=()=>({slot:rows/2});
         if(!erupt())throw Error('Bonus drop rejected');
       }finally{PanicMath.randomInt=random;PanicMath.plinko=plinko;}
-      const ball=balls.at(-1),base=PanicMath.settlePlinko(rows/2,10,rows,risk);
+      const ball=balls.at(-1),base=EruptionPayouts.settle(rows/2,10,rows,risk);
       if(!ball.demolition||ball.payout!==r2(base.payout*2)||ball.multiplier!==r2(base.multiplier*2))throw Error('Bonus multiplier incorrect');
       window.bonusReturn=ball.payout;window.bonusPot=pot;
     }""")
@@ -163,9 +170,8 @@ with sync_playwright() as p:
     page.locator('#sound').uncheck()
     page.locator('#rules-open').click()
     page.locator('.demo summary').click()
-    page.locator('#force-warp').click()
     page.locator('#rules-close').click()
     page.wait_for_timeout(600)
     assert not errors,errors
-    print('PASS: fleeing pedestrians, car ignition and wrecks, street reset, rounded explosion frames, lighting changes, height blackout and restoration, warp/car assets, rubble persistence, airborne settlement, single pot payout, launch lock, full rebuild, automatic next city, all layouts, mobile, reduced motion, no browser errors')
+    print('PASS: fleeing pedestrians, car ignition and wrecks, street reset, rounded explosion frames, lighting changes, height blackout and restoration, car assets, rubble persistence, airborne settlement, single pot payout, launch lock, full rebuild, automatic next city, all layouts, mobile, reduced motion, no browser errors')
     browser.close()

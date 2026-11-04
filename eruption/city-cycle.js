@@ -8,13 +8,13 @@ function updateCityCycle(dt){
   cycle.t+=dt;
   if(cycle.phase==='settling'&&balls.length===0){
     cycle.won=pot;balance=r2(balance+pot);pot=0;
-    cycle.phase='award';cycle.t=0;warp=null;
+    cycle.phase='award';cycle.t=0;
     banner={title:'CITY COMPLETE',sub:`TOWER POT +${money(cycle.won)} CR`,t:0};ui();
   }else if(cycle.phase==='award'&&cycle.t>=2.2){
     cycle.phase='rebuild';cycle.t=0;banner=null;resetStreetActors();
     for(const b of buildings){b.dead=false;b.hp=b.maxHp;b.flash=0;initBlocks(b);}ui();
   }else if(cycle.phase==='rebuild'&&cycle.t>=2.8){
-    city++;cycle.phase='play';cycle.t=0;cycle.won=0;nextWarpAt=now+3;ui();
+    city++;cycle.phase='play';cycle.t=0;cycle.won=0;ui();
   }
 }
 function cycleUI(){
@@ -26,7 +26,7 @@ function cycleUI(){
   $('erupt').textContent=phase==='play'?'ERUPT':phase==='settling'?'SETTLING…':phase==='award'?'BONUS PAID':'REBUILDING…';
   const locked=phase!=='play'||balls.length>0;
   $('rows').disabled=locked;for(const x of $('risk').children)x.disabled=locked;
-  $('crack').disabled=phase!=='play';$('force-warp').disabled=phase!=='play';
+  $('crack').disabled=phase!=='play';
   for(const el of document.querySelectorAll('[data-phase]'))el.classList.toggle('active',el.dataset.phase===phase);
 }
 function drawCityBuilding(b){

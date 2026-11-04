@@ -41,18 +41,25 @@ function pixelStreet(){
   ctx.fillStyle='#26303a';ctx.fillRect(0,STREET-2,W,5);ctx.fillStyle='#899095';ctx.fillRect(0,STREET-2,W,1);
   ctx.fillStyle='#111923';ctx.fillRect(0,STREET+3,W,29);
   ctx.fillStyle='#5e6263';for(let x=0;x<W;x+=35)ctx.fillRect(x,STREET+18,16,1);
-  for(let i=0;i<cars.length;i++){
+  // Sidewalk, far lane, near lane: draw from back to front.
+  for(let i=0;i<people.length;i++){
+    const p=people[i];if(p.hidden)continue;const frame=Math.floor(p.ph/Math.PI*2)%4;
+    ctx.save();ctx.translate(Math.round(p.x),STREET);ctx.scale(p.dir,1);
+    ctx.drawImage(personSprite(i,frame,!!p.panic||!!p.fleeing),-5,-18,10.5,18);ctx.restore();
+    if(p.burning)drawActorFire(p.x,STREET-5,15,i);
+  }
+  for(const i of cars.map((_,i)=>i).sort((a,b)=>cars[a].dir-cars[b].dir)){
     const c=cars[i],y=c.dir>0?STREET+17:STREET+5;
     ctx.save();ctx.translate(Math.round(c.x),y);ctx.scale(c.dir,1);
     ctx.fillStyle='#ebdfae0b';ctx.beginPath();ctx.moveTo(18,3);ctx.lineTo(48,-1);ctx.lineTo(48,9);ctx.closePath();ctx.fill();
     if(c.wrecked)ctx.filter='brightness(.3) saturate(.2)';
     const car=trafficCars[i%trafficCars.length];
     if(i===cars.length-1){
-      ctx.drawImage(policeCarSprite(),-23,-12);
+      ctx.drawImage(policeCarSprite(),-23,-8,47,15);
       if(!c.wrecked){
         const pulse=reduced?.65:.55+.25*Math.sin(now*7);
-        ctx.fillStyle=`rgba(92,170,242,${pulse})`;ctx.fillRect(-3,-13,4,2);
-        ctx.fillStyle=`rgba(232,81,83,${1-pulse})`;ctx.fillRect(2,-13,4,2);
+        ctx.fillStyle=`rgba(92,170,242,${pulse})`;ctx.fillRect(-3,-9,4,1);
+        ctx.fillStyle=`rgba(232,81,83,${1-pulse})`;ctx.fillRect(2,-9,4,1);
       }
     }else if(car.complete&&car.naturalWidth){
       const w=Math.round(car.naturalWidth*.72),h=Math.round(car.naturalHeight*.72);
@@ -62,55 +69,56 @@ function pixelStreet(){
     ctx.restore();
     if(c.burning)drawActorFire(c.x+c.dir*9,y,22,i);
   }
-  for(let i=0;i<people.length;i++){
-    const p=people[i];if(p.hidden)continue;const frame=Math.floor(p.ph/Math.PI*2)%4;
-    ctx.save();ctx.translate(Math.round(p.x),STREET);ctx.scale(p.dir,1);
-    ctx.drawImage(personSprite(i,frame,!!p.panic||!!p.fleeing),-5,-18,10.5,18);ctx.restore();
-    if(p.burning)drawActorFire(p.x,STREET-5,15,i);
-  }
   drawFireEngine();
   ctx.restore();
 }
 function policeCarSprite(){
   if(streetSprites.has('police-car'))return streetSprites.get('police-car');
-  const sprite=spriteCanvas(46,22,r=>{
-    r(10,4,23,9,'#d4dfe3');r(8,7,28,6,'#d4dfe3');
-    r(12,5,8,6,'#7dacc2');r(22,5,8,6,'#8abbd0');
-    r(13,5,6,1,'#c9e7eb');r(23,5,5,1,'#c9e7eb');
-    r(3,12,39,6,'#263c69');r(1,15,44,3,'#243556');
-    r(14,12,17,6,'#d5dfe2');r(21,12,1,6,'#7f94a3');
-    r(17,13,3,3,'#c1a459');r(16,14,5,1,'#d9bd70');r(24,13,3,1,'#62798d');
-    r(3,18,41,2,'#91a0aa');r(7,17,8,5,'#101722');r(32,17,8,5,'#101722');
-    r(9,18,4,3,'#aebdc5');r(34,18,4,3,'#aebdc5');
-    r(41,13,3,2,'#ffe2a4');r(2,13,2,2,'#d34a50');
-    r(18,3,12,1,'#24344d');r(19,1,5,2,'#549bd7');r(25,1,4,2,'#d95963');
-  });streetSprites.set('police-car',sprite);return sprite;
+  const base=trafficCars[0];
+  if(!base.complete||!base.naturalWidth)return vehicleSprite(0,false);
+  const sprite=document.createElement('canvas');sprite.width=base.naturalWidth;sprite.height=base.naturalHeight;
+  const g=sprite.getContext('2d');g.drawImage(base,0,0);
+  // White doors, dark bonnet and restrained blue stripe over the original sedan.
+  g.fillStyle='#d8dedc';g.fillRect(22,10,24,3);
+  g.fillStyle='#9ca9ad';g.fillRect(22,13,24,1);
+  g.fillStyle='#344b65';g.fillRect(22,12,24,1);
+  g.fillStyle='#697980';g.fillRect(34,10,1,4);
+  g.fillStyle='#cfb96d';g.fillRect(28,10,2,2);
+  g.fillStyle='#e4e8e2';g.fillRect(25,10,2,1);g.fillRect(38,10,2,1);
+  g.fillStyle='#252c36';g.fillRect(27,0,11,1);
+  g.fillStyle='#619ec2';g.fillRect(28,0,4,1);
+  g.fillStyle='#c26461';g.fillRect(34,0,3,1);
+  streetSprites.set('police-car',sprite);return sprite;
 }
-// Original side-on sprite inspired by the supplied red ladder-truck reference.
 function fireEngineSprite(){
   if(streetSprites.has('fire-engine'))return streetSprites.get('fire-engine');
-  const sprite=spriteCanvas(62,29,r=>{
-    r(2,7,34,17,'#bd1830');r(3,6,31,2,'#e13842');
-    r(39,5,15,19,'#c91b32');r(42,3,11,3,'#d92b3e');
-    r(53,9,4,15,'#c91b32');r(57,15,3,9,'#b7162b');
-    r(4,9,29,2,'#611b28');r(4,13,29,2,'#e3dfcf');r(4,18,29,2,'#e3dfcf');
-    for(let x=6;x<33;x+=5)r(x,14,1,4,'#e3dfcf');
-    r(35,9,5,15,'#687482');for(let y=10;y<24;y+=4)r(36,y,3,2,'#a2aab1');
-    r(42,7,5,8,'#83bdd1');r(49,7,4,9,'#a1d6e3');r(53,11,3,5,'#83bdd1');
-    r(42,7,1,7,'#d3eced');r(50,18,3,1,'#351e29');
-    r(23,22,3,1,'#ebbd49');r(28,22,3,1,'#ebbd49');r(57,20,3,2,'#ffdf9b');
-    r(1,24,60,2,'#919ba1');r(7,23,10,6,'#101722');r(46,23,10,6,'#101722');
-    r(10,24,4,4,'#c1c8ca');r(49,24,4,4,'#c1c8ca');
-    r(46,2,5,2,'#292b32');r(47,0,3,2,'#ffca40');
+  const sprite=spriteCanvas(56,22,r=>{
+    // Final-resolution pixels: clean ladder silhouette, coachwork and pack-sized tyres.
+    r(2,7,32,11,'#a3423e');r(3,6,30,1,'#d7866c');
+    r(2,16,51,3,'#692c30');r(3,17,49,1,'#c5bbaa');
+    r(35,4,11,14,'#b64b42');r(46,7,3,11,'#a03b37');r(49,12,5,6,'#993935');
+    r(36,5,9,1,'#e29479');r(36,6,4,6,'#374b58');r(42,6,4,7,'#405b6a');
+    r(36,6,4,1,'#9aafb5');r(42,6,3,1,'#b1c0c0');r(46,9,2,4,'#728a96');
+    r(36,13,12,1,'#ce7563');r(41,13,1,4,'#7b3536');r(43,14,2,1,'#c6bbb0');
+    r(4,8,12,7,'#6e797e');r(18,8,13,7,'#6e797e');
+    for(const y of [9,11,13]){r(5,y,10,1,'#a5adb0');r(19,y,11,1,'#a5adb0');}
+    r(8,14,4,1,'#414d56');r(23,14,4,1,'#414d56');
+    r(3,3,29,1,'#adb8b9');r(3,5,29,1,'#74858f');
+    for(let x=5;x<32;x+=4)r(x,4,1,1,'#cad0c9');
+    r(32,9,2,6,'#35424b');r(32,10,1,1,'#d0c7a6');r(32,13,1,1,'#bb9564');
+    r(1,18,54,1,'#9da9ac');r(2,19,52,1,'#303942');
+    for(const x of [8,41]){r(x,17,7,4,'#17212a');r(x+1,16,5,1,'#283640');r(x+1,21,5,1,'#17212a');r(x+2,18,3,3,'#7d8a90');r(x+2,18,3,1,'#bdc5c3');r(x+3,19,1,1,'#465660');}
+    r(51,14,3,2,'#e3d7ac');r(2,15,1,1,'#d18667');r(50,17,3,1,'#39434a');
+    r(38,3,7,1,'#36424c');r(39,2,2,1,'#dc9c5c');r(43,2,2,1,'#dc9c5c');
   });streetSprites.set('fire-engine',sprite);return sprite;
 }
 function drawFireEngine(){
   const e=fireEngine;if(!e)return;
   const y=STREET+23;
   ctx.save();ctx.translate(Math.round(e.x),y);ctx.scale(e.dir,1);
-  ctx.drawImage(fireEngineSprite(),-31,-22);
+  ctx.drawImage(fireEngineSprite(),-28,-15);
   ctx.fillStyle=reduced?'#ffc84a':`rgba(255,198,48,${.35+.4*(1+Math.sin(now*9))/2})`;
-  ctx.fillRect(15,-24,6,3);ctx.restore();
+  ctx.fillRect(11,-13,4,1);ctx.restore();
   if(e.phase!=='spray')return;
   const sx=e.x+e.dir*11,sy=y-16,tx=e.car.x,ty=STREET+(e.car.dir>0?15:3);
   ctx.save();

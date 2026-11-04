@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#040507">
 <title>Plinko Panic: Eruption</title>
-<link rel="stylesheet" href="layout.css?v=fire-engine-20261104">
+<link rel="stylesheet" href="layout.css?v=balanced-traffic-20261104">
 </head>
 <body>
 <main class="shell">
@@ -29,7 +29,7 @@
       <div class="phase" role="status" aria-live="polite"><div><strong id="phase-title"></strong><p id="phase-detail"></p></div></div>
     </section>
   </div>
-  <footer class="foot"><div class="foot-left"><label><input type="checkbox" id="sound" checked>Sound</label><label><input type="checkbox" id="warps" checked>Warps</label><button class="link" id="rules-open">How to play</button></div><span class="wordmark">METAWIN</span></footer>
+  <footer class="foot"><div class="foot-left"><label><input type="checkbox" id="sound" checked>Sound</label><button class="link" id="rules-open">How to play</button></div><span class="wordmark">METAWIN</span></footer>
 </main>
 <dialog id="rules" aria-labelledby="rules-title">
   <div class="dialog-head"><h2 id="rules-title">How to play</h2><button class="link" id="rules-close" aria-label="Close instructions">✕</button></div>
@@ -40,32 +40,33 @@
     <li><strong>Watch the rebuild.</strong> Cranes and crews restore the city. The next city starts automatically once rebuilding finishes. No new bet is placed until you erupt.</li>
   </ol>
   <p><strong>Gold demolition ball (5% chance).</strong> Pays 2× the normal bay payout and destroys any standing building in one hit. Hitting the clock tower triggers the Tower Pot finale. The Tower Pot itself is not doubled. Hits on rubble still pay double, without another destruction bonus.</p>
-  <p>Only the clock tower awards a demolition bonus. Warps transport balls between pegs without changing landing odds.</p>
+  <p>Theoretical return is approximately 96% including gold-ball payouts and the Tower Pot collected across completed cities. Short sessions can vary considerably.</p>
+  <p>Only the clock tower awards a demolition bonus.</p>
   <p class="fine">Free-play prototype using play credits.</p>
-  <details class="demo"><summary>Demo tools</summary><div><button id="force-warp">Open warp</button><button id="crack">Crack tower</button></div></details>
+  <details class="demo"><summary>Demo tools</summary><div><button id="crack">Crack tower</button></div></details>
   <button class="erupt" id="rules-done">Got it</button>
 </dialog>
-<script src="../model.js?v=fire-engine-20261104"></script>
-<script src="paths.js?v=fire-engine-20261104"></script>
-<script src="visuals.js?v=fire-engine-20261104"></script>
-<script src="city-depth.js?v=fire-engine-20261104"></script>
-<script src="street-sprites.js?v=fire-engine-20261104"></script>
-<script src="civic-buildings.js?v=fire-engine-20261104"></script>
-<script src="city-cycle.js?v=fire-engine-20261104"></script>
-<script src="warp-effects.js?v=fire-engine-20261104"></script>
-<script src="impact-effects.js?v=fire-engine-20261104"></script>
-<script src="street-reactions.js?v=fire-engine-20261104"></script>
+<script src="../model.js?v=balanced-traffic-20261104"></script>
+<script src="payouts.js?v=balanced-traffic-20261104"></script>
+<script src="paths.js?v=balanced-traffic-20261104"></script>
+<script src="visuals.js?v=balanced-traffic-20261104"></script>
+<script src="city-depth.js?v=balanced-traffic-20261104"></script>
+<script src="street-sprites.js?v=balanced-traffic-20261104"></script>
+<script src="civic-buildings.js?v=balanced-traffic-20261104"></script>
+<script src="city-cycle.js?v=balanced-traffic-20261104"></script>
+<script src="impact-effects.js?v=balanced-traffic-20261104"></script>
+<script src="street-reactions.js?v=balanced-traffic-20261104"></script>
 <script>
 'use strict';
 const $=id=>document.getElementById(id);
 const cv=$('cv'),ctx=cv.getContext('2d');
-const W=900,H=1000,CX=450,CRATER=104,TOP=178,LAST=630,STREET=912,TOWER_HP=15,POT_RATE=.03;
-const DEMOLITION_ODDS=20,DEMOLITION_MULTIPLIER=2; // One gold ball in 20 drops (5%).
+const W=900,H=1000,CX=450,CRATER=104,TOP=178,LAST=630,STREET=912,TOWER_HP=15,POT_RATE=EruptionPayouts.potRate;
+const DEMOLITION_ODDS=EruptionPayouts.demolitionOdds,DEMOLITION_MULTIPLIER=EruptionPayouts.demolitionMultiplier; // One gold ball in 20 drops (5%).
 const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const rnd=(a,b)=>a+Math.random()*(b-a),int=(a,b)=>Math.floor(rnd(a,b+1)),r2=x=>Math.round(x*100)/100;
 const money=x=>x.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
 let rows=12,risk='medium',balance=1000,pot=0,city=1,auto=false,nextAuto=0,now=0,S=1;
-let sp,vsp,ballR,pegR,pegs,buildings,bgLayer,mtLayer,skylineLayer,warp=null,nextWarpAt=4,shake=0,crater=0,banner=null;
+let sp,vsp,ballR,pegR,pegs,buildings,bgLayer,mtLayer,skylineLayer,shake=0,crater=0,banner=null;
 const balls=[],parts=[],texts=[],history=[];
 // ---------- audio (synth, no files) ----------
 let ac,lastTick=0;
@@ -76,7 +77,7 @@ const tick=r=>{if(now-lastTick<.03)return;lastTick=now;tone(900+r*45,.06,.03,'tr
 // ---------- layout ----------
 const rock=r=>Array.from({length:7},(_,i)=>{const a=i/7*Math.PI*2+rnd(-.2,.2),d=r*rnd(.8,1.2);return [Math.cos(a)*d,Math.sin(a)*d];});
 const heat=m=>m>=20?'#ff2d55':m>=5?'#ff6a1f':m>=2?'#ffb020':m>=1?'#38d6ff':'#2b7fa3';
-const table=()=>PanicMath.paytables[risk][rows];
+const table=()=>EruptionPayouts.paytables[risk][rows];
 const towerOf=()=>buildings.find(b=>b.tower);
 function build(){
   sp=860/(rows+1);vsp=(LAST-TOP)/(rows-1);ballR=Math.max(6,sp*.19);pegR=Math.max(4,sp*.11);
@@ -89,7 +90,7 @@ function build(){
   });
   if(old)Object.assign(towerOf(),{hp:old.hp,dead:old.dead,rebuildAt:old.rebuildAt,cur:old.cur});
   for(const b of buildings)initBlocks(b);
-  warp=null;nextWarpAt=now+3;render();ui();
+  render();ui();
 }
 const target=b=>b.blocks?Math.max(8,...b.blocks.filter(v=>v.alive).map(v=>STREET-v.y)):b.h0;
 const pos=(r,k)=>({x:CX+(k-r/2)*sp,y:TOP+r*vsp-pegR-ballR*.85});
@@ -121,31 +122,20 @@ function scare(x){
 // ---------- particles ----------
 function burst(x,y,n,kind,o={}){for(let i=0;i<n&&parts.length<1600;i++){const a=rnd(o.a0??0,o.a1??Math.PI*2),s=rnd(o.s0??40,o.s1??220);parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:0,max:rnd(o.l0??.5,o.l1??1.2),size:rnd(o.z0??1.5,o.z1??4),kind,rot:rnd(0,6),g:o.g??420});}}
 const float=(x,y,text,color,size=18)=>texts.push({x,y,text,color,size,life:0});
-// ---------- warps ----------
-function openWarp(){
-  if(cycle.phase!=='play')return;
-  const a=int(2,Math.floor(rows*.45)),b=int(a+2,rows-2),spec={a,p:int(0,a),b,q:int(0,b)};
-  warp={spec,inn:pegs[a][spec.p+1],out:pegs[b][spec.q+1],born:now,expire:now+10,hold:0};
-  tone(140,.6,.08,'sawtooth',40);
-}
-function warpAlpha(){if(!warp)return 0;const end=Math.max(warp.expire,warp.hold);return Math.min(1,(now-warp.born)*2,Math.max(0,(end+.6-now)/.6));}
 // ---------- round ----------
 function erupt(){
   if(cycle.phase!=='play')return false;
   const stake=Math.floor(+$('stake').value);
   if(!PanicMath.validStake(stake,balance)){$('stake').animate([{transform:'translateX(-4px)'},{transform:'translateX(4px)'},{transform:'none'}],{duration:200});return false;}
   balance=r2(balance-stake);pot=r2(pot+stake*POT_RATE);
-  const drop=PanicMath.plinko(undefined,rows),bay=PanicMath.settlePlinko(drop.slot,stake,rows,risk);
+  const drop=PanicMath.plinko(undefined,rows),bay=EruptionPayouts.settle(drop.slot,stake,rows,risk);
   const demolition=PanicMath.randomInt(DEMOLITION_ODDS)===0;
   if(demolition){bay.multiplier=r2(bay.multiplier*DEMOLITION_MULTIPLIER);bay.payout=r2(bay.payout*DEMOLITION_MULTIPLIER);}
-  const w=$('warps').checked&&warp&&now<warp.expire?warp:null;
-  const nodes=EruptionPaths.route(drop.slot,rows,w&&w.spec,Math.random()<.5);
+  const nodes=EruptionPaths.route(drop.slot,rows);
   const segs=[],p0=pos(0,0);
   segs.push({kind:'arc',x0:CX+rnd(-14,14),y0:CRATER+8,x1:p0.x,y1:p0.y,h:rnd(70,100),dur:.7});
   for(let n=1;n<nodes.length;n++){
-    const A=nodes[n-1],B=nodes[n],a=pos(A.r,A.k),peg=A.warped?null:[A.r,A.k+1];
-    if(B.warped){const b=pos(B.r,B.k);segs.push({kind:'suck',x0:a.x,y0:a.y,x1:w.inn.x,y1:w.inn.y,dur:.45,peg},{kind:'emerge',x0:w.out.x,y0:w.out.y,x1:b.x,y1:b.y,dur:.35});
-      w.hold=Math.max(w.hold,now+segs.reduce((s,x)=>s+x.dur,0)+.3);continue;}
+    const A=nodes[n-1],B=nodes[n],a=pos(A.r,A.k),peg=[A.r,A.k+1];
     if(B.r===rows)segs.push({kind:'fall',x0:a.x,y0:a.y,x1:CX+(B.k-rows/2)*sp,y1:null,h:vsp*.25,dur:.38,peg});
     else{const b=pos(B.r,B.k);segs.push({kind:'arc',x0:a.x,y0:a.y,x1:b.x,y1:b.y,h:vsp*rnd(.3,.55),dur:.11+vsp/650+rnd(0,.03),peg});}
   }
@@ -157,8 +147,6 @@ function erupt(){
 function startSeg(b,s){
   if(s.peg){const p=pegs[s.peg[0]][s.peg[1]];p.glow=1;tick(s.peg[0]);burst(p.x,p.y-pegR,3,'ember',{a0:-3,a1:0,s0:20,s1:90,l1:.5});}
   if(s.kind==='fall')s.y1=STREET-target(buildings[b.slot])-ballR*.5;
-  if(s.kind==='suck'){if(warp)warp.pulseAt=now;tone(500,.45,.06,'sine',60);}
-  if(s.kind==='emerge'){if(warp)warp.pulseAt=now;tone(80,.35,.06,'sine',700);float(s.x0,s.y0-20,'WARP','#b36bff',16);}
 }
 function impact(ball){
   const b=buildings[ball.slot],x=b.x,y=STREET-b.cur;
@@ -188,17 +176,13 @@ function update(dt){
   now+=dt;
   updateImpactEffects(dt);
   if(auto&&now>=nextAuto){if(!erupt())setAuto(false);nextAuto=now+.3;}
-  if(cycle.phase==='play'&&$('warps').checked&&!warp&&now>nextWarpAt)openWarp();
-  if(warp&&warpAlpha()<=0&&now>warp.expire){warp=null;nextWarpAt=now+rnd(4,9);}
   for(let i=balls.length-1;i>=0;i--){
     const b=balls[i];if(b.t===0&&b.i===0)startSeg(b,b.segs[0]);
     b.t+=dt;let s=b.segs[b.i];
     while(s&&b.t>=s.dur){b.t-=s.dur;s=b.segs[++b.i];if(s)startSeg(b,s);}
     if(!s){impact(b);balls.splice(i,1);continue;}
     const u=b.t/s.dur;b.scale=1;
-    if(s.kind==='suck'){b.x=s.x0+(s.x1-s.x0)*u;b.y=s.y0+(s.y1-s.y0)*u;b.scale=1-u;}
-    else if(s.kind==='emerge'){b.x=s.x0+(s.x1-s.x0)*u;b.y=s.y0+(s.y1-s.y0)*u;b.scale=u;}
-    else{b.x=s.x0+(s.x1-s.x0)*u;b.y=s.y0+(s.y1-s.y0)*u-s.h*4*u*(1-u);}
+    b.x=s.x0+(s.x1-s.x0)*u;b.y=s.y0+(s.y1-s.y0)*u-s.h*4*u*(1-u);
     if(Math.random()<.5*b.scale)parts.push({x:b.x+rnd(-3,3),y:b.y+rnd(-3,3),vx:rnd(-15,15),vy:rnd(-30,0),life:0,max:rnd(.25,.6),size:rnd(1.5,3.5)*b.scale,kind:'ember',g:0});
   }
   for(const row of pegs)for(const p of row)p.glow=Math.max(0,p.glow-dt*2.5);
@@ -228,15 +212,7 @@ function draw(){
   ctx.drawImage(skylineLayer,0,0,W,H);
   drawAtmosphere();
   drawCraterGlow();
-  const wa=warpAlpha();
-  for(const row of pegs)for(const p of row){
-    if(warp&&wa>.3&&(p===warp.inn||p===warp.out))continue;
-    drawRockPeg(p);
-  }
-  if(warp){
-    ctx.save();ctx.globalAlpha=wa*.16;ctx.strokeStyle='#b99ce6';ctx.lineWidth=1;ctx.setLineDash([2,12]);ctx.lineDashOffset=reduced?0:-now*24;ctx.beginPath();ctx.moveTo(warp.inn.x,warp.inn.y);ctx.quadraticCurveTo((warp.inn.x+warp.out.x)/2+40,(warp.inn.y+warp.out.y)/2,warp.out.x,warp.out.y);ctx.stroke();ctx.restore();
-    drawPortal(warp.inn.x,warp.inn.y,sp*.42,false,wa);drawPortal(warp.out.x,warp.out.y,sp*.42,true,wa);
-  }
+  for(const row of pegs)for(const p of row)drawRockPeg(p);
   drawConstructionCranes();
   for(const b of buildings)drawBuilding(b);
   for(const b of balls)drawLavaBall(b);
@@ -280,8 +256,6 @@ $('half').onclick=()=>{$('stake').value=Math.max(1,Math.floor($('stake').value/2
 $('dbl').onclick=()=>{$('stake').value=Math.min(1000,Math.max(1,Math.floor(balance)),$('stake').value*2);};
 $('risk').onclick=e=>{const v=e.target.dataset.v;if(!v||e.target.disabled)return;risk=v;for(const x of $('risk').children){x.classList.toggle('on',x===e.target);x.setAttribute('aria-pressed',String(x===e.target));}ui();};
 $('rows').onchange=e=>{rows=+e.target.value;build();};
-$('warps').onchange=e=>{if(!e.target.checked)warp=null;};
-$('force-warp').onclick=()=>{$('warps').checked=true;openWarp();};
 $('crack').onclick=()=>{const t=towerOf();if(!t.dead){t.hp=1;damageBlocks(t);t.flash=1;ui();}};
 addEventListener('keydown',e=>{if(!$('rules').open&&e.code==='Space'&&e.target.tagName!=='INPUT'&&e.target.tagName!=='BUTTON'){e.preventDefault();erupt();}});
 function resize(){const w=cv.getBoundingClientRect().width,d=Math.min(2,devicePixelRatio||1);cv.width=Math.round(w*d);cv.height=Math.round(w*d*H/W);S=cv.width/W;if(pegs)render();}
