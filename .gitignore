@@ -1,0 +1,6 @@
+artifacts/
+__pycache__/
+blender/output/
+*.blend1
+node_modules/
+.playwright-mcp/

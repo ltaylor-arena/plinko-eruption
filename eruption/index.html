@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#040507">
+<title>Plinko Panic: Eruption</title>
+<link rel="stylesheet" href="layout.css?v=fire-engine-20261104">
+</head>
+<body>
+<main class="shell">
+  <div class="game">
+    <aside class="panel" aria-label="Game controls">
+      <div class="stake-field"><label class="label" for="stake">Bet Amount</label>
+        <div class="amount"><input id="stake" type="number" inputmode="numeric" min="1" max="1000" step="1" value="10"><span class="cur">CR</span><button id="half" aria-label="Halve bet">½</button><button id="dbl" aria-label="Double bet">2×</button><button id="max-stake">Max</button></div>
+      </div>
+      <div class="risk-field"><div class="label">Risk <small id="max-win"></small></div>
+        <div class="seg" id="risk" role="group" aria-label="Risk"><button data-v="low" aria-pressed="false">Low</button><button data-v="medium" class="on" aria-pressed="true">Medium</button><button data-v="high" aria-pressed="false">High</button></div>
+      </div>
+      <div class="rows-field"><label class="label" for="rows">Rows</label><select id="rows"><option>8</option><option>10</option><option selected>12</option><option>14</option><option>16</option></select></div>
+      <div class="actions"><button class="erupt" id="erupt">ERUPT</button><button class="auto" id="auto" aria-pressed="false">AUTO</button></div>
+      <div class="totals"><span>Play credits</span><span>Balance <b id="balance"></b></span></div>
+      <p class="panel-hint">Bring down the clock tower to collect the Tower Pot.</p>
+    </aside>
+    <section class="stage" aria-label="Eruption game board">
+      <div class="stage-head"><div class="title-mark">Plinko <span>ERUPTION</span></div><div class="history" id="history" aria-label="Recent impacts"></div></div>
+      <div class="hud"><div class="tower-status"><small>City <span id="city">1</span> · Clock tower <span id="tower-hp"></span></small><div class="bar"><i id="tower-bar"></i></div></div><div class="pot-status"><small>Tower Pot</small><b id="pot"></b><small> CR</small></div></div>
+      <canvas id="cv" aria-label="Volcano Plinko board above a city skyline"></canvas>
+      <div class="phase" role="status" aria-live="polite"><div><strong id="phase-title"></strong><p id="phase-detail"></p></div></div>
+    </section>
+  </div>
+  <footer class="foot"><div class="foot-left"><label><input type="checkbox" id="sound" checked>Sound</label><label><input type="checkbox" id="warps" checked>Warps</label><button class="link" id="rules-open">How to play</button></div><span class="wordmark">METAWIN</span></footer>
+</main>
+<dialog id="rules" aria-labelledby="rules-title">
+  <div class="dialog-head"><h2 id="rules-title">How to play</h2><button class="link" id="rules-close" aria-label="Close instructions">✕</button></div>
+  <ol>
+    <li><strong>Erupt.</strong> Your ball pays its landing-bay multiplier and chips away at a building. Each bet adds 3% of its amount to the Tower Pot.</li>
+    <li><strong>Bring down the tower.</strong> It takes 15 hits. Other buildings stay as rubble; those bays still pay normally.</li>
+    <li><strong>Collect the pot.</strong> Tower collapse pauses new launches. Balls in flight finish, then the Tower Pot is paid once. Auto stops at the city finale.</li>
+    <li><strong>Watch the rebuild.</strong> Cranes and crews restore the city. The next city starts automatically once rebuilding finishes. No new bet is placed until you erupt.</li>
+  </ol>
+  <p><strong>Gold demolition ball (5% chance).</strong> Pays 2× the normal bay payout and destroys any standing building in one hit. Hitting the clock tower triggers the Tower Pot finale. The Tower Pot itself is not doubled. Hits on rubble still pay double, without another destruction bonus.</p>
+  <p>Only the clock tower awards a demolition bonus. Warps transport balls between pegs without changing landing odds.</p>
+  <p class="fine">Free-play prototype using play credits.</p>
+  <details class="demo"><summary>Demo tools</summary><div><button id="force-warp">Open warp</button><button id="crack">Crack tower</button></div></details>
+  <button class="erupt" id="rules-done">Got it</button>
+</dialog>
+<script src="../model.js?v=fire-engine-20261104"></script>
+<script src="paths.js?v=fire-engine-20261104"></script>
+<script src="visuals.js?v=fire-engine-20261104"></script>
+<script src="city-depth.js?v=fire-engine-20261104"></script>
+<script src="street-sprites.js?v=fire-engine-20261104"></script>
+<script src="civic-buildings.js?v=fire-engine-20261104"></script>
+<script src="city-cycle.js?v=fire-engine-20261104"></script>
+<script src="warp-effects.js?v=fire-engine-20261104"></script>
+<script src="impact-effects.js?v=fire-engine-20261104"></script>
+<script src="street-reactions.js?v=fire-engine-20261104"></script>
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+const cv=$('cv'),ctx=cv.getContext('2d');
+const W=900,H=1000,CX=450,CRATER=104,TOP=178,LAST=630,STREET=912,TOWER_HP=15,POT_RATE=.03;
+const DEMOLITION_ODDS=20,DEMOLITION_MULTIPLIER=2; // One gold ball in 20 drops (5%).
+const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const rnd=(a,b)=>a+Math.random()*(b-a),int=(a,b)=>Math.floor(rnd(a,b+1)),r2=x=>Math.round(x*100)/100;
+const money=x=>x.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+let rows=12,risk='medium',balance=1000,pot=0,city=1,auto=false,nextAuto=0,now=0,S=1;
+let sp,vsp,ballR,pegR,pegs,buildings,bgLayer,mtLayer,skylineLayer,warp=null,nextWarpAt=4,shake=0,crater=0,banner=null;
+const balls=[],parts=[],texts=[],history=[];
+// ---------- audio (synth, no files) ----------
+let ac,lastTick=0;
+function audio(){if(!$('sound').checked)return null;ac??=new AudioContext();if(ac.state==='suspended')ac.resume();return ac;}
+function tone(f,d,v=.05,type='sine',slide){const a=audio();if(!a)return;const t=a.currentTime,o=a.createOscillator(),g=a.createGain();o.type=type;o.frequency.setValueAtTime(f,t);if(slide)o.frequency.exponentialRampToValueAtTime(slide,t+d);g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(1e-4,t+d);o.connect(g).connect(a.destination);o.start(t);o.stop(t+d);}
+function noise(d,v=.2,freq=900){const a=audio();if(!a)return;const b=a.createBuffer(1,Math.ceil(a.sampleRate*d),a.sampleRate),ch=b.getChannelData(0);for(let i=0;i<ch.length;i++)ch[i]=(Math.random()*2-1)*(1-i/ch.length)**2;const s=a.createBufferSource(),f=a.createBiquadFilter(),g=a.createGain();f.type='lowpass';f.frequency.value=freq;g.gain.value=v;s.buffer=b;s.connect(f).connect(g).connect(a.destination);s.start();}
+const tick=r=>{if(now-lastTick<.03)return;lastTick=now;tone(900+r*45,.06,.03,'triangle');};
+// ---------- layout ----------
+const rock=r=>Array.from({length:7},(_,i)=>{const a=i/7*Math.PI*2+rnd(-.2,.2),d=r*rnd(.8,1.2);return [Math.cos(a)*d,Math.sin(a)*d];});
+const heat=m=>m>=20?'#ff2d55':m>=5?'#ff6a1f':m>=2?'#ffb020':m>=1?'#38d6ff':'#2b7fa3';
+const table=()=>PanicMath.paytables[risk][rows];
+const towerOf=()=>buildings.find(b=>b.tower);
+function build(){
+  sp=860/(rows+1);vsp=(LAST-TOP)/(rows-1);ballR=Math.max(6,sp*.19);pegR=Math.max(4,sp*.11);
+  pegs=Array.from({length:rows},(_,r)=>Array.from({length:r+3},(_,j)=>({x:CX+(j-(r+2)/2)*sp,y:TOP+r*vsp,glow:0,shape:rock(pegR)})));
+  const old=buildings&&towerOf();
+  buildings=Array.from({length:rows+1},(_,i)=>{
+    const t=(i-rows/2)/(rows/2),bell=Math.exp(-3*t*t),tower=i===rows/2,h=50+195*Math.exp(-2.15*t*t),maxHp=tower?TOWER_HP:Math.max(1,Math.round(1+6*bell));
+    return {i,kind:civicKind(i,rows),x:CX+(i-rows/2)*sp,w:sp*.82,h0:h,cur:h,hp:maxHp,maxHp,tower,dead:false,rebuildAt:0,flash:0,label:0,smokeAt:0,
+      jag:Array.from({length:5},()=>rnd(.3,1)),win:Array.from({length:240},()=>Math.random()<.45?(Math.random()<.8?1:2):0)};
+  });
+  if(old)Object.assign(towerOf(),{hp:old.hp,dead:old.dead,rebuildAt:old.rebuildAt,cur:old.cur});
+  for(const b of buildings)initBlocks(b);
+  warp=null;nextWarpAt=now+3;render();ui();
+}
+const target=b=>b.blocks?Math.max(8,...b.blocks.filter(v=>v.alive).map(v=>STREET-v.y)):b.h0;
+const pos=(r,k)=>({x:CX+(k-r/2)*sp,y:TOP+r*vsp-pegR-ballR*.85});
+// ---------- static layers ----------
+function layer(draw){const c=document.createElement('canvas');c.width=W*S;c.height=H*S;const g=c.getContext('2d');g.scale(S,S);draw(g);return c;}
+function render(){
+  bgLayer=layer(g=>{
+    g.fillStyle='#0c101c';g.fillRect(0,0,W,H);
+    const rg=g.createRadialGradient(CX,520,40,CX,520,620);rg.addColorStop(0,'#222235');rg.addColorStop(1,'#080d19');g.fillStyle=rg;g.fillRect(0,0,W,H);
+    // Fine ash in the night sky, with a warm haze above the crater.
+    const sky=visualRandom(491);
+    for(let i=0;i<150;i++){g.fillStyle=i%4?'#9ba9c01c':'#ffb97945';g.fillRect(sky()*W,sky()*700,1.4,1.4);}
+    const haze=g.createRadialGradient(CX,100,10,CX,100,260);haze.addColorStop(0,'#b9461825');haze.addColorStop(1,'#b9461800');g.fillStyle=haze;g.fillRect(0,0,W,400);
+    // distant skyline
+    g.filter='blur(2.5px)';
+    for(let x=-10;x<W;x+=rnd(18,40)){const w=rnd(16,38),h=rnd(60,300);g.fillStyle='#06101a';g.fillRect(x,STREET-h,w,h);g.fillStyle='rgba(56,214,255,.18)';g.fillRect(x,STREET-h,w,2);}
+    g.filter='none';
+  });
+  mtLayer=layer(mountain);
+  skylineLayer=layer(paintDistantCity);
+}
+// ---------- city life ----------
+const people=Array.from({length:38},()=>({x:rnd(0,W),dir:Math.random()<.5?-1:1,v:rnd(10,22),panic:0,ph:rnd(0,6),c:['#9fb3c4','#38d6ff','#ffb020','#d7dde3','#7fe6ff'][int(0,4)]}));
+const cars=Array.from({length:7},(_,i)=>({x:rnd(0,W),dir:i%2?1:-1,v:rnd(50,90),brake:0,c:['#1d2a36','#2a1d2e','#26303a'][i%3]}));
+function scare(x){
+  for(const p of people)if(Math.abs(p.x-x)<170){p.panic=rnd(1.8,3);p.dir=Math.sign(p.x-x)||1;}
+  for(const c of cars)if(Math.abs(c.x-x)<190)c.brake=rnd(.8,1.4);
+}
+// ---------- particles ----------
+function burst(x,y,n,kind,o={}){for(let i=0;i<n&&parts.length<1600;i++){const a=rnd(o.a0??0,o.a1??Math.PI*2),s=rnd(o.s0??40,o.s1??220);parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:0,max:rnd(o.l0??.5,o.l1??1.2),size:rnd(o.z0??1.5,o.z1??4),kind,rot:rnd(0,6),g:o.g??420});}}
+const float=(x,y,text,color,size=18)=>texts.push({x,y,text,color,size,life:0});
+// ---------- warps ----------
+function openWarp(){
+  if(cycle.phase!=='play')return;
+  const a=int(2,Math.floor(rows*.45)),b=int(a+2,rows-2),spec={a,p:int(0,a),b,q:int(0,b)};
+  warp={spec,inn:pegs[a][spec.p+1],out:pegs[b][spec.q+1],born:now,expire:now+10,hold:0};
+  tone(140,.6,.08,'sawtooth',40);
+}
+function warpAlpha(){if(!warp)return 0;const end=Math.max(warp.expire,warp.hold);return Math.min(1,(now-warp.born)*2,Math.max(0,(end+.6-now)/.6));}
+// ---------- round ----------
+function erupt(){
+  if(cycle.phase!=='play')return false;
+  const stake=Math.floor(+$('stake').value);
+  if(!PanicMath.validStake(stake,balance)){$('stake').animate([{transform:'translateX(-4px)'},{transform:'translateX(4px)'},{transform:'none'}],{duration:200});return false;}
+  balance=r2(balance-stake);pot=r2(pot+stake*POT_RATE);
+  const drop=PanicMath.plinko(undefined,rows),bay=PanicMath.settlePlinko(drop.slot,stake,rows,risk);
+  const demolition=PanicMath.randomInt(DEMOLITION_ODDS)===0;
+  if(demolition){bay.multiplier=r2(bay.multiplier*DEMOLITION_MULTIPLIER);bay.payout=r2(bay.payout*DEMOLITION_MULTIPLIER);}
+  const w=$('warps').checked&&warp&&now<warp.expire?warp:null;
+  const nodes=EruptionPaths.route(drop.slot,rows,w&&w.spec,Math.random()<.5);
+  const segs=[],p0=pos(0,0);
+  segs.push({kind:'arc',x0:CX+rnd(-14,14),y0:CRATER+8,x1:p0.x,y1:p0.y,h:rnd(70,100),dur:.7});
+  for(let n=1;n<nodes.length;n++){
+    const A=nodes[n-1],B=nodes[n],a=pos(A.r,A.k),peg=A.warped?null:[A.r,A.k+1];
+    if(B.warped){const b=pos(B.r,B.k);segs.push({kind:'suck',x0:a.x,y0:a.y,x1:w.inn.x,y1:w.inn.y,dur:.45,peg},{kind:'emerge',x0:w.out.x,y0:w.out.y,x1:b.x,y1:b.y,dur:.35});
+      w.hold=Math.max(w.hold,now+segs.reduce((s,x)=>s+x.dur,0)+.3);continue;}
+    if(B.r===rows)segs.push({kind:'fall',x0:a.x,y0:a.y,x1:CX+(B.k-rows/2)*sp,y1:null,h:vsp*.25,dur:.38,peg});
+    else{const b=pos(B.r,B.k);segs.push({kind:'arc',x0:a.x,y0:a.y,x1:b.x,y1:b.y,h:vsp*rnd(.3,.55),dur:.11+vsp/650+rnd(0,.03),peg});}
+  }
+  balls.push({segs,i:0,t:0,x:segs[0].x0,y:segs[0].y0,scale:1,slot:drop.slot,stake,demolition,...bay});
+  if(demolition){float(CX,CRATER+40,'2× DEMOLITION','#ffe397',19);tone(440,.3,.07,'triangle',880);}
+  crater=1;burst(CX,CRATER+6,14,'ember',{a0:-2.6,a1:-.5,s0:80,s1:260,g:300});noise(.5,.12,220);
+  ui();return true;
+}
+function startSeg(b,s){
+  if(s.peg){const p=pegs[s.peg[0]][s.peg[1]];p.glow=1;tick(s.peg[0]);burst(p.x,p.y-pegR,3,'ember',{a0:-3,a1:0,s0:20,s1:90,l1:.5});}
+  if(s.kind==='fall')s.y1=STREET-target(buildings[b.slot])-ballR*.5;
+  if(s.kind==='suck'){if(warp)warp.pulseAt=now;tone(500,.45,.06,'sine',60);}
+  if(s.kind==='emerge'){if(warp)warp.pulseAt=now;tone(80,.35,.06,'sine',700);float(s.x0,s.y0-20,'WARP','#b36bff',16);}
+}
+function impact(ball){
+  const b=buildings[ball.slot],x=b.x,y=STREET-b.cur;
+  buildingExplosion(b,x,y);
+  igniteStreet(x,b.w);
+  balance=r2(balance+ball.payout);b.label=1;b.flash=1;
+  history.unshift(ball.multiplier);history.length=Math.min(history.length,12);
+  float(x,y-14,ball.payout>ball.stake?`+${money(ball.payout)}`:`${ball.multiplier}×`,ball.payout>ball.stake?'#ffd36b':'#7fa6bd',ball.multiplier>=5?24:16);
+  burst(x,y,18,'debris',{a0:-Math.PI,a1:0,s0:60,s1:240,z0:2,z1:5});burst(x,y,10,'ember',{a0:-Math.PI,a1:0});burst(x,y,6,'dust',{s0:10,s1:40,g:-20,l0:.8,l1:1.6,z0:8,z1:16});
+  shake=Math.max(shake,ball.multiplier>=5?7:3);noise(.3,.18,500+ball.multiplier*20);scare(x);
+  if(ball.demolition){float(x,y-42,'2× DEMOLITION','#ffe397',18);burst(x,y,22,'ember',{a0:-Math.PI,a1:0,s0:70,s1:240});}
+  if(!b.dead){b.hp=ball.demolition?0:b.hp-1;damageBlocks(b);if(b.hp<=0)collapse(b);}
+  ui();
+}
+function collapse(b){
+  b.dead=true;
+  burst(b.x,STREET-b.cur*.5,b.tower?120:40,'debris',{a0:-Math.PI,a1:0,s0:40,s1:b.tower?380:220,z0:2,z1:7});
+  burst(b.x,STREET-10,b.tower?30:12,'dust',{a0:-Math.PI,a1:0,s0:20,s1:80,g:-15,l0:1.2,l1:2.6,z0:14,z1:30});
+  noise(b.tower?1.8:.8,b.tower?.4:.22,b.tower?300:600);scare(b.x);
+  if(b.tower){
+    finishCity();
+    shake=16;for(const p of people)p.panic=3;tone(220,1.2,.08,'square',880);
+  }
+}
+// ---------- update ----------
+function update(dt){
+  now+=dt;
+  updateImpactEffects(dt);
+  if(auto&&now>=nextAuto){if(!erupt())setAuto(false);nextAuto=now+.3;}
+  if(cycle.phase==='play'&&$('warps').checked&&!warp&&now>nextWarpAt)openWarp();
+  if(warp&&warpAlpha()<=0&&now>warp.expire){warp=null;nextWarpAt=now+rnd(4,9);}
+  for(let i=balls.length-1;i>=0;i--){
+    const b=balls[i];if(b.t===0&&b.i===0)startSeg(b,b.segs[0]);
+    b.t+=dt;let s=b.segs[b.i];
+    while(s&&b.t>=s.dur){b.t-=s.dur;s=b.segs[++b.i];if(s)startSeg(b,s);}
+    if(!s){impact(b);balls.splice(i,1);continue;}
+    const u=b.t/s.dur;b.scale=1;
+    if(s.kind==='suck'){b.x=s.x0+(s.x1-s.x0)*u;b.y=s.y0+(s.y1-s.y0)*u;b.scale=1-u;}
+    else if(s.kind==='emerge'){b.x=s.x0+(s.x1-s.x0)*u;b.y=s.y0+(s.y1-s.y0)*u;b.scale=u;}
+    else{b.x=s.x0+(s.x1-s.x0)*u;b.y=s.y0+(s.y1-s.y0)*u-s.h*4*u*(1-u);}
+    if(Math.random()<.5*b.scale)parts.push({x:b.x+rnd(-3,3),y:b.y+rnd(-3,3),vx:rnd(-15,15),vy:rnd(-30,0),life:0,max:rnd(.25,.6),size:rnd(1.5,3.5)*b.scale,kind:'ember',g:0});
+  }
+  for(const row of pegs)for(const p of row)p.glow=Math.max(0,p.glow-dt*2.5);
+  for(const b of buildings){
+    b.cur=target(b);
+    b.flash=Math.max(0,b.flash-dt*3);b.label=Math.max(0,b.label-dt*4);
+    if(b.dead&&now>b.smokeAt){b.smokeAt=now+.15;burst(b.x+rnd(-b.w/3,b.w/3),STREET-10,1,'smoke',{a0:-1.8,a1:-1.3,s0:10,s1:25,g:0,l0:1.5,l1:2.5,z0:6,z1:12});}
+  }
+  for(let i=parts.length-1;i>=0;i--){const p=parts[i];p.life+=dt;if(p.life>=p.max){parts.splice(i,1);continue;}p.vy+=p.g*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.rot+=dt*5;
+    if(p.kind==='debris'&&p.y>STREET+4){p.y=STREET+4;p.vy*=-.3;p.vx*=.6;}if(p.kind==='dust'||p.kind==='smoke')p.size+=dt*14;}
+  for(let i=texts.length-1;i>=0;i--){const t=texts[i];t.life+=dt;t.y-=dt*30;if(t.life>1.4)texts.splice(i,1);}
+  updateStreetActors(dt);
+  crater=Math.max(0,crater-dt*.95);shake=reduced?0:Math.max(0,shake-dt*30);
+  if(banner&&(banner.t+=dt)>3.2)banner=null;
+  updateCityCycle(dt);
+  const locked=balls.length>0||cycle.phase!=='play';if(locked!==$('rows').disabled){$('rows').disabled=locked;for(const x of $('risk').children)x.disabled=locked;}
+}
+// ---------- draw ----------
+function drawPortal(x,y,r,exit,a){detailedPortal(x,y,r,exit,a);}
+function drawBuilding(b){drawCityBuilding(b);}
+function drawStreet(){pixelStreet();}
+function draw(){
+  ctx.setTransform(S,0,0,S,0,0);
+  ctx.drawImage(bgLayer,0,0,W,H);
+  ctx.save();if(shake)ctx.translate(rnd(-shake,shake),rnd(-shake,shake));
+  ctx.drawImage(mtLayer,0,0,W,H);
+  ctx.drawImage(skylineLayer,0,0,W,H);
+  drawAtmosphere();
+  drawCraterGlow();
+  const wa=warpAlpha();
+  for(const row of pegs)for(const p of row){
+    if(warp&&wa>.3&&(p===warp.inn||p===warp.out))continue;
+    drawRockPeg(p);
+  }
+  if(warp){
+    ctx.save();ctx.globalAlpha=wa*.16;ctx.strokeStyle='#b99ce6';ctx.lineWidth=1;ctx.setLineDash([2,12]);ctx.lineDashOffset=reduced?0:-now*24;ctx.beginPath();ctx.moveTo(warp.inn.x,warp.inn.y);ctx.quadraticCurveTo((warp.inn.x+warp.out.x)/2+40,(warp.inn.y+warp.out.y)/2,warp.out.x,warp.out.y);ctx.stroke();ctx.restore();
+    drawPortal(warp.inn.x,warp.inn.y,sp*.42,false,wa);drawPortal(warp.out.x,warp.out.y,sp*.42,true,wa);
+  }
+  drawConstructionCranes();
+  for(const b of buildings)drawBuilding(b);
+  for(const b of balls)drawLavaBall(b);
+  drawImpactExplosions();
+  for(const p of parts){
+    const a=1-p.life/p.max;
+    if(p.kind==='ember'){ctx.globalCompositeOperation='lighter';ctx.fillStyle=`rgba(255,${120+a*100|0},40,${a})`;ctx.beginPath();ctx.arc(p.x,p.y,p.size,0,7);ctx.fill();ctx.globalCompositeOperation='source-over';}
+    else if(p.kind==='debris'){ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.rot);ctx.globalAlpha=a;ctx.fillStyle=p.color||'#68594f';ctx.fillRect(-p.size/2,-p.size/2,p.size,p.size);ctx.strokeStyle=`rgba(232,179,122,${a*.4})`;ctx.strokeRect(-p.size/2,-p.size/2,p.size,p.size);ctx.restore();}
+    else{ctx.fillStyle=p.kind==='dust'?`rgba(120,132,145,${a*.25})`:`rgba(30,34,40,${a*.4})`;ctx.beginPath();ctx.arc(p.x,p.y,p.size,0,7);ctx.fill();}
+  }
+  drawStreet();
+  drawImpactExplosions(true);
+  drawConstructionCrew();
+  const t=table(),lw=sp*.88;ctx.textAlign='center';ctx.textBaseline='middle';
+  for(const b of buildings){const m=t[b.i],c=heat(m),y=944+b.label*6;
+    ctx.fillStyle=c+'2e';ctx.strokeStyle=c;ctx.lineWidth=1.2;ctx.beginPath();ctx.roundRect(b.x-lw/2,y,lw,28,5);ctx.fill();ctx.stroke();
+    ctx.fillStyle=c;ctx.font=`800 ${Math.min(14,sp*.28)}px Inter,Segoe UI,sans-serif`;ctx.fillText(`${m}×`,b.x,y+14.5);
+    }
+  for(const x of texts){ctx.globalAlpha=Math.min(1,(1.4-x.life)*2);ctx.fillStyle=x.color;ctx.font=`800 ${x.size}px Inter,Segoe UI,sans-serif`;ctx.shadowColor=x.color;ctx.shadowBlur=10;ctx.fillText(x.text,x.x,x.y);}
+  ctx.globalAlpha=1;ctx.shadowBlur=0;
+  ctx.restore();
+  if(banner){const k=Math.min(1,banner.t*4),a=Math.min(1,(3.2-banner.t)*2);ctx.save();ctx.globalAlpha=a;ctx.translate(CX,380);ctx.scale(.7+.3*k,.7+.3*k);
+    ctx.fillStyle='rgba(2,4,8,.75)';ctx.beginPath();ctx.roundRect(-330,-60,660,120,14);ctx.fill();ctx.strokeStyle='#38d6ff';ctx.shadowColor='#38d6ff';ctx.shadowBlur=20;ctx.stroke();
+    ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#e8fbff';ctx.font='900 44px Inter,Segoe UI,sans-serif';ctx.fillText(banner.title,0,-14);ctx.shadowColor='#ff6a1f';ctx.fillStyle='#ffb347';ctx.font='800 20px Inter,Segoe UI,sans-serif';ctx.fillText(banner.sub,0,30);ctx.restore();}
+}
+// ---------- ui ----------
+function ui(){
+  cycleUI();
+  $('balance').textContent=money(balance);$('pot').textContent=money(pot);$('city').textContent=city;
+  const tw=towerOf();$('tower-hp').textContent=tw.dead?'DOWN':`${tw.hp}/${tw.maxHp}`;$('tower-bar').style.width=`${tw.dead?0:tw.hp/tw.maxHp*100}%`;
+  $('max-win').textContent=`Max ${Math.max(...table())*DEMOLITION_MULTIPLIER}×`;
+  $('history').replaceChildren(...history.map(m=>{const c=document.createElement('span');c.className='chip';c.style.background=heat(m);c.textContent=`${m}×`;return c;}));
+}
+function setAuto(on){auto=on&&cycle.phase==='play';on=auto;nextAuto=now;$('auto').classList.toggle('on',on);$('auto').setAttribute('aria-pressed',String(on));$('auto').textContent=on?'STOP AUTO':'AUTO';}
+$('erupt').onclick=()=>erupt();
+$('max-stake').onclick=()=>{$('stake').value=Math.max(1,Math.min(1000,Math.floor(balance)));};
+$('rules-open').onclick=()=>$('rules').showModal();
+$('rules-close').onclick=$('rules-done').onclick=()=>$('rules').close();
+$('auto').onclick=()=>setAuto(!auto);
+$('half').onclick=()=>{$('stake').value=Math.max(1,Math.floor($('stake').value/2));};
+$('dbl').onclick=()=>{$('stake').value=Math.min(1000,Math.max(1,Math.floor(balance)),$('stake').value*2);};
+$('risk').onclick=e=>{const v=e.target.dataset.v;if(!v||e.target.disabled)return;risk=v;for(const x of $('risk').children){x.classList.toggle('on',x===e.target);x.setAttribute('aria-pressed',String(x===e.target));}ui();};
+$('rows').onchange=e=>{rows=+e.target.value;build();};
+$('warps').onchange=e=>{if(!e.target.checked)warp=null;};
+$('force-warp').onclick=()=>{$('warps').checked=true;openWarp();};
+$('crack').onclick=()=>{const t=towerOf();if(!t.dead){t.hp=1;damageBlocks(t);t.flash=1;ui();}};
+addEventListener('keydown',e=>{if(!$('rules').open&&e.code==='Space'&&e.target.tagName!=='INPUT'&&e.target.tagName!=='BUTTON'){e.preventDefault();erupt();}});
+function resize(){const w=cv.getBoundingClientRect().width,d=Math.min(2,devicePixelRatio||1);cv.width=Math.round(w*d);cv.height=Math.round(w*d*H/W);S=cv.width/W;if(pegs)render();}
+new ResizeObserver(resize).observe(cv);
+resize();build();
+let last=performance.now();
+requestAnimationFrame(function loop(t){const dt=Math.min(.05,(t-last)/1000);last=t;update(dt);draw();requestAnimationFrame(loop);});
+</script>
+</body>
+</html>

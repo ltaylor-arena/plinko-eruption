@@ -1,0 +1,19 @@
+Digital Realms Studio Asset License v1.0
+
+Copyright (c) 2026 Digital Realms Studio
+
+Permission is granted to use these assets in personal and commercial projects, including games, prototypes, videos, and other interactive media.
+
+You may:
+- Modify the assets.
+- Use the assets in free or commercial projects.
+- Distribute projects that include the assets as part of a larger work.
+
+You may NOT:
+- Redistribute the assets as standalone files.
+- Resell the assets individually or as part of another asset pack.
+- Claim authorship of the original assets.
+
+Attribution is appreciated but not required.
+
+THE ASSETS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
