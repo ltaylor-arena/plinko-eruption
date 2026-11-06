@@ -1,0 +1,4 @@
+{
+  "buildCommand": "python3 eruption/package-site.py",
+  "outputDirectory": "artifacts/site"
+}

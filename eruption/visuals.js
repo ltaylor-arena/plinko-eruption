@@ -2,6 +2,7 @@
 // Seeded detail keeps the scenery stable across resize and board changes.
 function visualRandom(seed){return ()=>{seed=(Math.imul(seed,1664525)+1013904223)|0;return (seed>>>0)/4294967296;};}
 const volcanoBackdrop=new Image();
+let lavaFlowGlow=null;
 volcanoBackdrop.src='volcano-pixel.png';
 volcanoBackdrop.onload=()=>{
   // A cached image can finish between script tags, before game globals exist.
@@ -10,6 +11,7 @@ volcanoBackdrop.onload=()=>{
 };
 function mountain(g){
   if(!volcanoBackdrop.complete||!volcanoBackdrop.naturalWidth)return;
+  if(!lavaFlowGlow)cacheLavaFlowGlow();
   g.save();
   // Preserve sharp voxel detail and align the crater at 18% with the launch point.
   g.imageSmoothingEnabled=false;
@@ -22,6 +24,33 @@ function mountain(g){
   const fade=g.createLinearGradient(0,620,0,842);fade.addColorStop(0,'#0000');fade.addColorStop(1,'#000');
   g.fillStyle=fade;g.fillRect(0,620,W,224);
   g.restore();
+}
+function cacheLavaFlowGlow(){
+  // Sample the actual lava channels so the light follows the voxel artwork.
+  const mask=document.createElement('canvas');mask.width=225;mask.height=250;
+  const g=mask.getContext('2d',{willReadFrequently:true});
+  g.drawImage(volcanoBackdrop,0,-14.5,225,225);
+  let pixels;
+  try{pixels=g.getImageData(0,0,225,250);}catch{return;}
+  const d=pixels.data;
+  for(let i=0;i<d.length;i+=4){
+    const y=Math.floor(i/4/225)*4,r=d[i],green=d[i+1],blue=d[i+2];
+    const hot=r>135&&green>48&&r>green*1.22&&green>blue*1.5;
+    const fade=Math.max(0,Math.min(1,(y-125)/40,(790-y)/170));
+    d[i]=255;d[i+1]=118;d[i+2]=28;d[i+3]=hot?Math.round(240*fade):0;
+  }
+  g.putImageData(pixels,0,0);
+  lavaFlowGlow=document.createElement('canvas');lavaFlowGlow.width=225;lavaFlowGlow.height=250;
+  const glow=lavaFlowGlow.getContext('2d');
+  glow.filter='blur(4px)';glow.drawImage(mask,0,0);
+  glow.filter='blur(1px)';glow.globalAlpha=.85;glow.drawImage(mask,0,0);
+  glow.filter='none';glow.globalAlpha=.35;glow.drawImage(mask,0,0);
+}
+function drawLavaFlowGlow(){
+  if(!lavaFlowGlow)return;
+  ctx.save();ctx.globalCompositeOperation='screen';
+  ctx.globalAlpha=reduced?.65:.65+.19*Math.sin(now*3)+.03*Math.sin(now*5.3);
+  ctx.drawImage(lavaFlowGlow,0,0,W,H);ctx.restore();
 }
 function initBlocks(b){
   const random=visualRandom(900+b.i*77),cols=Math.max(4,Math.round(b.w/8));
@@ -86,10 +115,37 @@ function drawLavaBall(b){
 function drawAtmosphere(){
   ctx.save();
   const time=reduced?0:now;
-  for(let i=0;i<10;i++){
-    const t=(time*.09+i/10)%1,x=Math.round((CX+Math.sin(i*13)*16+t*65)/4)*4,y=Math.round((CRATER-20-t*130)/4)*4,s=8+Math.floor(t*4)*4;
-    ctx.fillStyle=`rgba(101,87,104,${(1-t)*.09})`;
-    ctx.fillRect(x-s,y,s*2,s);ctx.fillRect(x-s*.5,y-s,s*1.5,s);ctx.fillRect(x,y+s,s,s*.5);
+  for(let i=17;i>=0;i--){
+    const t=(time*.24+i/18)%1;
+    const x=Math.round((CX+Math.sin(i*13)*12+t*72+Math.sin(time*.9+i)*t*9)/3)*3;
+    const y=Math.round((CRATER-6-t*155)/3)*3,s=9+Math.floor(t*6)*3;
+    const alpha=Math.sin(Math.PI*t)*.24;
+    ctx.fillStyle=`rgba(77,66,79,${alpha})`;
+    ctx.fillRect(x-s,y-s,s*2,s*1.5);
+    ctx.fillRect(x-s*1.5,y-s*.5,s*2,s);
+    ctx.fillRect(x,y-s*1.5,s,s*2);
+    ctx.fillStyle=`rgba(150,117,111,${alpha*.45})`;
+    ctx.fillRect(x-s,y-s,s,3);ctx.fillRect(x+s*.5,y-s*1.5,s*.5,3);
+    // Hot undersides near the vent cool into grey as the smoke rises.
+    ctx.fillStyle=`rgba(238,101,43,${alpha*(1-t)*.8})`;
+    ctx.fillRect(x-s*.5,y+s*.3,s*1.5,3);
+  }
+  if(!reduced)drawIdleVolcanoSparks();
+  ctx.restore();
+}
+function drawIdleVolcanoSparks(){
+  // A small, staggered burst every few seconds; independent of outcome RNG.
+  const cycleTime=now%5.7,cycleIndex=Math.floor(now/5.7);
+  ctx.save();ctx.globalCompositeOperation='lighter';
+  for(let i=0;i<4;i++){
+    const age=cycleTime-.5-i*.13;
+    if(age<0||age>1.5)continue;
+    const seed=Math.sin(cycleIndex*17+i*7),vx=seed*25;
+    const x=CX+seed*18+vx*age,y=CRATER-5-(63+i*9)*age+26*age*age;
+    const alpha=Math.sin(Math.min(1,age*8)*Math.PI/2)*(1-age/1.5);
+    ctx.fillStyle=`rgba(255,102,25,${alpha*.18})`;ctx.fillRect(Math.round(x)-4,Math.round(y)-4,9,9);
+    ctx.fillStyle=`rgba(255,148,45,${alpha*.5})`;ctx.fillRect(Math.round(x-vx*.035),Math.round(y)+3,2,4);
+    ctx.fillStyle=`rgba(255,219,137,${alpha})`;ctx.fillRect(Math.round(x),Math.round(y),2,2);
   }
   ctx.restore();
 }

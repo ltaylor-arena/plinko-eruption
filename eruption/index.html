@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#040507">
 <title>Plinko Panic: Eruption</title>
-<link rel="stylesheet" href="layout.css?v=balanced-traffic-20261104">
+<link rel="stylesheet" href="layout.css?v=living-volcano-20261104">
 </head>
 <body>
 <main class="shell">
@@ -46,16 +46,16 @@
   <details class="demo"><summary>Demo tools</summary><div><button id="crack">Crack tower</button></div></details>
   <button class="erupt" id="rules-done">Got it</button>
 </dialog>
-<script src="../model.js?v=balanced-traffic-20261104"></script>
-<script src="payouts.js?v=balanced-traffic-20261104"></script>
-<script src="paths.js?v=balanced-traffic-20261104"></script>
-<script src="visuals.js?v=balanced-traffic-20261104"></script>
-<script src="city-depth.js?v=balanced-traffic-20261104"></script>
-<script src="street-sprites.js?v=balanced-traffic-20261104"></script>
-<script src="civic-buildings.js?v=balanced-traffic-20261104"></script>
-<script src="city-cycle.js?v=balanced-traffic-20261104"></script>
-<script src="impact-effects.js?v=balanced-traffic-20261104"></script>
-<script src="street-reactions.js?v=balanced-traffic-20261104"></script>
+<script src="../model.js?v=living-volcano-20261104"></script>
+<script src="payouts.js?v=living-volcano-20261104"></script>
+<script src="paths.js?v=living-volcano-20261104"></script>
+<script src="visuals.js?v=living-volcano-20261104"></script>
+<script src="city-depth.js?v=living-volcano-20261104"></script>
+<script src="street-sprites.js?v=living-volcano-20261104"></script>
+<script src="civic-buildings.js?v=living-volcano-20261104"></script>
+<script src="city-cycle.js?v=living-volcano-20261104"></script>
+<script src="impact-effects.js?v=living-volcano-20261104"></script>
+<script src="street-reactions.js?v=living-volcano-20261104"></script>
 <script>
 'use strict';
 const $=id=>document.getElementById(id);
@@ -209,6 +209,7 @@ function draw(){
   ctx.drawImage(bgLayer,0,0,W,H);
   ctx.save();if(shake)ctx.translate(rnd(-shake,shake),rnd(-shake,shake));
   ctx.drawImage(mtLayer,0,0,W,H);
+  drawLavaFlowGlow();
   ctx.drawImage(skylineLayer,0,0,W,H);
   drawAtmosphere();
   drawCraterGlow();
